@@ -1,0 +1,4 @@
+Example in and output files
+The testpiece.gcode and testpiece2.gcode are objects sliced by OrcaSlicer
+testpieceout.gcode and testpiece2out.gcode are the gcode for the objects with pin supports and wave LaSO's
+All files are sliced for overture Rock pla, for an Ender 3 V3
