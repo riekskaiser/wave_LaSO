@@ -2,19 +2,40 @@ import numpy as np
 import re
 from shapely.geometry import Point,LineString, Polygon
 from shapely.affinity import rotate
-from shapely import geometry
-from func import *
+#from shapely import geometry
+#from func import *
 import matplotlib.pyplot as plt
-supportpitch = 10
-supportpitch_aross = 10
-fileName = "gcodes/testpiece.gcode"
+import time
+GivenName = input("Please provide the name of the gcode file, withouth the extension: ")
+fileName = f"gcodes/{GivenName}.gcode"
 inputfile = open(fileName,"r")
-fn = f"gcodes/testpieceout_{supportpitch_aross}mmacross.gcode"
-BaseHeight = 20.
-OverhangHeight = [BaseHeight,BaseHeight+0.12]# lower and upper height of the overhang layer
-Supported = True
-Brimsize = 5.0
-trackwidth = 0.4
+fn = f"gcodes/{GivenName}out.gcode"
+print(f"outputfile: {fn}")
+BaseHeight = input("At what height is the overhang located? (in mm), using a dot as a decimal operator: ")
+BaseHeight = float(BaseHeight) #converting the given aswer to a float
+OverhangHeight = [BaseHeight,BaseHeight]# lower and upper height of the overhang layer
+SupportQuestion = input("Do you want pin supports? (y/n): ")
+if SupportQuestion == 'y':
+    Supported = True
+elif SupportQuestion =="n":
+    Supported = False
+
+
+Brimsize = input("what size should the brim of the pins be? (in mm)(recommended 5.0): ")
+Brimsize = float(Brimsize)#
+nozzlesize =  input("What is the nozzlediameter (in mm)(recommended 0.4): ")
+nozzlesize = float(nozzlesize)
+trackwidth = input(f"What is the track width? (in mm)(recommended {nozzlesize}): ")
+trackwidth = float(trackwidth)
+
+supportpitch = input("what is the distance between supports from track to track? (in mm): ")
+supportpitch = float(supportpitch)
+supportpitch_across = input("what is the distance between supports on a track?(in mm): ")
+supportpitch_across = float(supportpitch_across)
+
+starttime = time.time()
+
+
 outputfile = open(fn,'w')
 Base_GCode = inputfile.readlines()
 ZLoc = 0
@@ -23,7 +44,7 @@ BedOffset = 0.2
 OverhangPrinted = False
 seedLoc = (0,0)
 seedCurve = [(0,0),(0,1)]
-nozzlesize = 0.4
+
 Efactor= nozzlesize**2/(0.25*np.pi*1.75**2)
 
 
@@ -55,7 +76,7 @@ def CapturePerimeter(command):
         perimeterComplete = True
         if not (BoundaryShape[0]==BoundaryShape[-1]):# if the perimeter does not form a closed loop, it gets closed here
             BoundaryShape.append(BoundaryShape[0])
-        print(f"boundary points: {BoundaryShape}")
+        print(f"Detected outer shape of boundary: {BoundaryShape}")
     elif command.startswith(";TYPE:Inner wall"):
         suspendSearch=True
     elif command.startswith("G1") and not suspendSearch and " E" in command and not ("E-" in command): #when the 
@@ -347,9 +368,9 @@ def offset2gcode(linewidth = 0.4,overlap = 0.125,boundary_curve = [(0, 0), (12, 
     
     
     #turns fan to full and heats up the extruder
-    change_fanspeed(255,filename)
-    
+    #change_fanspeed(255,filename)
     #set_extrusionTemp(extruderTemp,True,filename)
+        #to reduce the dependancy on external scripts, this code is removed
     #moves and rotates the seed curve geometry, so that the geometry is located and rotated correctly
     
     boundary_curve = rotate_coord(coord_set=boundary_curve,center = center,angle=angle)
@@ -391,6 +412,7 @@ def offset2gcode(linewidth = 0.4,overlap = 0.125,boundary_curve = [(0, 0), (12, 
     gcode_lines = []
 
     while not current_shape.is_empty and i < 10e4: #runs while the current wave is not empty
+        print(f"calculating track {i}", end="\r")
         gcode_lines = []
         E=0 #resets the current E value
         E_prev = 0
@@ -419,13 +441,13 @@ def offset2gcode(linewidth = 0.4,overlap = 0.125,boundary_curve = [(0, 0), (12, 
                 isOnBoundary_filtered = [isOnBoundary[a] for a in valid_action_indices] 
                 xfiltered =     [x[a] for a in valid_action_indices]    
                 yfiltered =     [y[a] for a in valid_action_indices] 
-                print(i)
+                
             else:
                 
                 isOnBoundary_filtered = list(reversed([isOnBoundary[a] for a in valid_action_indices]) )
                 xfiltered =             list(reversed([x[a] for a in valid_action_indices]) ) 
                 yfiltered =             list(reversed([y[a] for a in valid_action_indices]))
-                print(i)
+                
             if len(xfiltered)<4:
                 break
             #select the first point that is on the boundary, to determine the starting point
@@ -560,11 +582,11 @@ def remove_near_duplicates(xsupports, ysupports, threshold=1.0):
 def GenerateOverhangToolpaths():
 
     x,y = seedLoc
-    xsupports,ysupports,OverhangToolpaths = offset2gcode(linewidth = 0.4,overlap = 0.15,boundary_curve = BoundaryShape,seed_curve = [(x-5,y),(x+5,y)],Efactor = Efactor,F = 180,xoffset = 0,yoffset = 0,supportpitch = supportpitch,extruderTemp = 200,center = seedLoc,supportpitch_across = supportpitch_aross,angle = 0,filename = "default.gcode")
+    xsupports,ysupports,OverhangToolpaths = offset2gcode(linewidth = 0.4,overlap = 0.15,boundary_curve = BoundaryShape,seed_curve = [(x-5,y),(x+5,y)],Efactor = Efactor,F = 180,xoffset = 0,yoffset = 0,supportpitch = supportpitch,extruderTemp = 200,center = seedLoc,supportpitch_across = supportpitch_across,angle = 0,filename = "default.gcode")
     xsupports,ysupports=remove_near_duplicates(xsupports,ysupports,4)
      # Create mask for shadow filtering
     shadow_buffer = shapeShadow.buffer(5)
-    print(f"support amount before shadow filtering {len(xsupports)}")
+    
     mask = np.array([
         not shadow_buffer.contains(Point(x, y))
         for x, y in zip(xsupports, ysupports)
@@ -659,10 +681,10 @@ for line in range(len(Base_GCode)-3):
                         outputfile.write(f"\nG1 E-0.5 Z{ZLoc+1};Zhop and retract\n")
                         outputfile.write(f'G0 X{xpos-brimpos} Y{ypos - brimpos};\n')
                         outputfile.write(f"G1  Z{ZLoc} E0.50; undo zhop and reprime nozzle\n")
-                        outputfile.write(f"G1 X{xpos+brimpos} E{2*brimpos*Efactor*1.05} F500\n")
-                        outputfile.write(f"G1 Y{ypos+brimpos} E{2*brimpos*Efactor*1.05}\n")
-                        outputfile.write(f"G1 X{xpos-brimpos} E{2*brimpos*Efactor*1.05}\n")
-                        outputfile.write(f"G1 Y{ypos-brimpos} E{2*brimpos*Efactor*1.05}\n")
+                        outputfile.write(f"G1 X{xpos+brimpos} E{2*brimpos*Efactor*1.0} F500\n")
+                        outputfile.write(f"G1 Y{ypos+brimpos} E{2*brimpos*Efactor*1.0}\n")
+                        outputfile.write(f"G1 X{xpos-brimpos} E{2*brimpos*Efactor*1.0}\n")
+                        outputfile.write(f"G1 Y{ypos-brimpos} E{2*brimpos*Efactor*1.0}\n")
 
 
                     
@@ -684,6 +706,10 @@ for line in range(len(Base_GCode)-3):
         outputfile.write(Base_GCode[line])
 
 
+endtime = time.time()
+totalTime = endtime-starttime
+
+print(f"Finished in {int(totalTime/60)} minutes and {int(totalTime%60)} seconds at {time.ctime(time.time())}")
 
 if BoundaryShape:
     xs, ys = zip(*BoundaryShape)
@@ -695,4 +721,3 @@ if BoundaryShape:
     plt.title("Outer Wall Perimeter")
     plt.show()
 
-print(BoundaryShape)
