@@ -36,4 +36,4 @@ Shapely (which requires GEOS), NumPy and Matplotlib. Run the file in a python te
 # What was the code tested on?
 The code was tested for an Ender 3 V3, with Overture Rock PLA, a .12 mm layer height, a nozzle temperature of 220 degrees celcius and a bed temperature of 60 degrees celcius. I strongly recommend to review the resultant gcode with tools like https://ncviewer.com/ before printing, and keeping a close eye on the printing of first layer, the overhang, and the layer that is placed on top of the overhang. This script builds custom gcode, it is experimental. I do not take any responsibilty for damage to 3D printers or computers that results from the use of this page.
 # I have suggestions for improving the code. 
-I currently do not have an email set up for suggestions yet, and I am not that familliar with the workings of Github. When I am done with my thesis, I will look into how to get suggestions, and how to incorporate them.
+Please leave suggestions in the issues tab! 
