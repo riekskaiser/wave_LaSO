@@ -2,6 +2,7 @@
 Investigating the warping of Laterally Supported Overhangs in fused deposition modelling; The python code.
 
 This code was written in the context of Rieks Kaiser's master thesis, for the study Mechanical Engineering at the University of Twente
+This branch specifically contains the scripts that are referred to in my thesis. It contains code not specifically relevant to the proposed pin support solution, and will not be updated after the thesis is handed in. 
 # What is a wave LaSO?
 A wave LaSO, or a wave laterally supported overhang is a novel feature for 3D printed FDM parts, that allows overhanging structures (structures that are not supported by previous layers) to be printed without any supports.
 By overlapping the printed tracks slightly, tracks get connected to the previous printed track. The printed tracks get defined as the geometric offset of the previous track. This can be seen in the figure below.
