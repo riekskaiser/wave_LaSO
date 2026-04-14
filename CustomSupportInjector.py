@@ -6,6 +6,7 @@ from shapely.affinity import rotate
 #from func import *
 import matplotlib.pyplot as plt
 import time
+slicer = "Orca"
 GivenName = input("Please provide the name of the gcode file, withouth the extension: ")
 fileName = f"gcodes/{GivenName}.gcode"
 inputfile = open(fileName,"r")
@@ -13,25 +14,32 @@ fn = f"gcodes/{GivenName}out.gcode"
 print(f"outputfile: {fn}")
 BaseHeight = input("At what height is the overhang located? (in mm), using a dot as a decimal operator: ")
 BaseHeight = float(BaseHeight) #converting the given aswer to a float
-OverhangHeight = [BaseHeight,BaseHeight]# lower and upper height of the overhang layer
+OverhangHeight = [BaseHeight,BaseHeight+0.12]# lower and upper height of the overhang layer
 SupportQuestion = input("Do you want pin supports? (y/n): ")
 if SupportQuestion == 'y':
     Supported = True
 elif SupportQuestion =="n":
     Supported = False
 
+if Supported:
+    Brimsize = input("what size should the brim of the pins be? (in mm)(recommended 5.0): ")
+    Brimsize = float(Brimsize)#
+    supportpitch = input("what is the distance between supports from track to track? (in mm): ")
+    supportpitch = float(supportpitch)
+    supportpitch_across = input("what is the distance between supports on a track?(in mm): ")
+    supportpitch_across = float(supportpitch_across)
+    
+else:
+    Brimsize = 0
+    supportpitch=100
+    supportpitch_across=100
 
-Brimsize = input("what size should the brim of the pins be? (in mm)(recommended 5.0): ")
-Brimsize = float(Brimsize)#
 nozzlesize =  input("What is the nozzlediameter (in mm)(recommended 0.4): ")
 nozzlesize = float(nozzlesize)
+
 trackwidth = input(f"What is the track width? (in mm)(recommended {nozzlesize}): ")
 trackwidth = float(trackwidth)
 
-supportpitch = input("what is the distance between supports from track to track? (in mm): ")
-supportpitch = float(supportpitch)
-supportpitch_across = input("what is the distance between supports on a track?(in mm): ")
-supportpitch_across = float(supportpitch_across)
 
 starttime = time.time()
 
@@ -49,15 +57,29 @@ Efactor= nozzlesize**2/(0.25*np.pi*1.75**2)
 
 
 
-brimFound = False
-brimComplete = False
-BrimShape = []
+seedlayerFound = False
+seedlayerComplete = False
+seedshape = []
+seedpoly = Polygon(seedshape)
 outerWallFound = False
 perimeterComplete = False
 suspendSearch = False
 BoundaryShape = []
 current_x = 0
 current_y = 0
+def flagdefinition(slicer):
+    outerWallFlag = ";TYPE:Outer wall"
+    overhangWallFlag = ";TYPE:Overhang wall"
+    innerWallFlag = ";TYPE:Inner wall"
+    match slicer:
+        case "Orca":
+            outerWallFlag = ";TYPE:Outer wall"
+            overhangWallFlag = ";TYPE:Overhang wall"
+            innerWallFlag = ";TYPE:Inner wall"
+        case "Prusa":
+            a=1
+    return outerWallFlag,innerWallFlag,overhangWallFlag
+
 def CapturePerimeter(command):
     #captures the shape of the overhang to be printed by looking at the gcode for the outer wall generation
     global outerWallFound
@@ -66,13 +88,15 @@ def CapturePerimeter(command):
     global suspendSearch
     global current_x
     global current_y
+    global slicer
+    outerWallFlag,innerWallFlag,overhangWallFlag = flagdefinition(slicer)
     x_re = re.compile(r'X([-+]?[0-9]*\.?[0-9]+)')
     y_re = re.compile(r'Y([-+]?[0-9]*\.?[0-9]+)')
     if not outerWallFound:
-        if command.startswith(";TYPE:Outer wall") or command.startswith(";TYPE:Overhang wall"):
+        if command.startswith(outerWallFlag) or command.startswith(overhangWallFlag):
             outerWallFound=True
             suspendSearch=False
-    elif command.startswith(";TYPE:") and "Sparse infill" in command : #as the outer wall ends wth an retraction, the boundary definition is exited after a retraction is found
+    elif command.startswith(";TYPE:") and "infill" in command : #as the outer wall ends wth an retraction, the boundary definition is exited after a retraction is found
         perimeterComplete = True
         if not (BoundaryShape[0]==BoundaryShape[-1]):# if the perimeter does not form a closed loop, it gets closed here
             BoundaryShape.append(BoundaryShape[0])
@@ -132,21 +156,26 @@ def createSupportRestriction(command):
 
 
 def getSeedloc(command):
-    global brimFound
-    global brimComplete
+    global seedlayerFound
+    global seedlayerComplete
     global current_x
     global current_y
-    global BrimShape
+    global seedshape
     global seedLoc
+    global seedpoly
     x_re = re.compile(r'X([-+]?[0-9]*\.?[0-9]+)')
     y_re = re.compile(r'Y([-+]?[0-9]*\.?[0-9]+)')
-    if not brimFound:
-        if command.startswith(";TYPE:Brim"):
-            brimFound = True
-    elif command.startswith(";TYPE:Inner wall"):
-        brimComplete = True
-        points = np.array(BrimShape)
-        seedLoc = np.mean(points, axis = 0)
+    if not seedlayerFound:
+        if command.startswith(";TYPE:Outer wall"):
+            seedlayerFound = True
+    elif command.startswith(";TYPE:Inner wall") or "infill" in command:
+        seedlayerComplete = True
+        
+        seedpoly = Polygon(seedshape).buffer(-2*nozzlesize)
+        x, y = zip(*seedshape)
+        plt.figure(1)
+        plt.plot(x,y)
+        plt.show()
     elif command.startswith("G1") and "E" in command:
         x_match = x_re.search(command)
         y_match = y_re.search(command)
@@ -158,7 +187,7 @@ def getSeedloc(command):
 
         # Record point if both coordinates are known
         if current_x is not None and current_y is not None:
-            BrimShape.append((current_x, current_y))
+            seedshape.append((current_x, current_y))
 
 # --- Helper functions ---
 def densify_curve(seed_curve, spacing=0.1):
@@ -190,6 +219,8 @@ def lineinterpolation(xprev, yprev, xcurr, ycurr, length):
     return xnew, ynew
 
 def offsets(seed_curve, r=0.1):
+    if not isinstance(seed_curve, list):
+        seed_curve = list(seed_curve.exterior.coords) 
     line = LineString(seed_curve)
     offset_shape = line.buffer(r, resolution=8)
     offset_boundary = offset_shape.exterior
@@ -252,7 +283,7 @@ def rotate_coord(coord_set, center, angle):
     raise TypeError("rotate_coord(): unsupported input type.")
 import numpy as np
 
-def closest_point(xlast, ylast, points):
+def closest_point(xlast, ylast, points,isonBoundary):
     # inputs : 
     # xlast      x coordinate of reference point
     # ylast      y coordinate of reference point
@@ -265,7 +296,10 @@ def closest_point(xlast, ylast, points):
     index_last_point = None
 
     for i in range(len(points)):
-        d = dist(xlast, ylast, points[i])
+        if isonBoundary[i]:
+            d = dist(xlast, ylast, points[i])
+        else:
+            d= float('inf')
         if d < min_dist:
             min_dist = d
             index_last_point = i
@@ -373,13 +407,6 @@ def offset2gcode(linewidth = 0.4,overlap = 0.125,boundary_curve = [(0, 0), (12, 
         #to reduce the dependancy on external scripts, this code is removed
     #moves and rotates the seed curve geometry, so that the geometry is located and rotated correctly
     
-    boundary_curve = rotate_coord(coord_set=boundary_curve,center = center,angle=angle)
-    boundary_curve = translate_seed(boundary_curve,xoffset,yoffset)
-    seed_curve = rotate_coord(coord_set=seed_curve,center=center,angle=angle)
-    seed_curve = translate_seed(seed_curve,xoffset,yoffset)
-    
-    len_seedcurve = 10
-    
     # inputs 
     # - linewidth       width of the line               mm
     # - overlap         overlap of printed lines        %
@@ -388,7 +415,7 @@ def offset2gcode(linewidth = 0.4,overlap = 0.125,boundary_curve = [(0, 0), (12, 
     # - fileName        filepath of the .gcode file     string
     # - F               feedrate of the overhang        mm/min
     
-    L_min=0.01
+    L_min=0.001
     # --- define the r (radius of the offset circles) as the track offset --- 
     # this becomes the distance between each curve
     r = linewidth*(1-overlap)
@@ -398,7 +425,7 @@ def offset2gcode(linewidth = 0.4,overlap = 0.125,boundary_curve = [(0, 0), (12, 
     # determine the boundary polygon and densify the seed curve
     boundary_polygon = Polygon(boundary_curve) #generate a polygon of the boundary coordinates
     boundary_polygon = boundary_polygon.buffer(-r).buffer(0)
-    seed_curve = densify_curve(seed_curve,0.05) #makes sure that the curve that generates the offset curves has sufficient point density
+   
     # --- Initial offset ---
     bin1, bin2, shape = offsets(seed_curve, r/2) #offset of the seedcurve
     current_shape = shape.intersection(boundary_polygon) #offset of the seedcurve where it intersects with the boundary polygon. Note this also includes the boundary
@@ -453,7 +480,7 @@ def offset2gcode(linewidth = 0.4,overlap = 0.125,boundary_curve = [(0, 0), (12, 
             #select the first point that is on the boundary, to determine the starting point
 
             points_filtered = list(zip(xfiltered, yfiltered))
-            first_index = closest_point(xlast=xlast,ylast=ylast,points=points_filtered)
+            first_index = closest_point(xlast=xlast,ylast=ylast,points=points_filtered,isonBoundary=isOnBoundary_filtered)
             xfiltered = list(xfiltered[first_index:])+list(xfiltered[:first_index])
             yfiltered = list(yfiltered[first_index:])+list(yfiltered[:first_index])
             isOnBoundary_filtered = list(isOnBoundary_filtered[first_index:])+list(isOnBoundary_filtered[:first_index])
@@ -467,13 +494,13 @@ def offset2gcode(linewidth = 0.4,overlap = 0.125,boundary_curve = [(0, 0), (12, 
            
             #places a support at the start of the curve
             E_coord = np.zeros(len(xfiltered)) 
-            for j in range(1,len(xfiltered)-1):
+            for j in range(1,len(xfiltered)):
                 distance = np.sqrt((xfiltered[j]-xfiltered[j-1])**2+(yfiltered[j]-yfiltered[j-1])**2)
                 
                 if (isOnBoundary_filtered[j-1] and isOnBoundary_filtered[j]) : #if the current and previous point are on the boundary, it is not extruding
                     E_coord[j]=E
                     #plot travel paths in green
-                    plt.plot([xfiltered[j],xfiltered[j-1]],[yfiltered[j],yfiltered[j-1]],'-g')
+                    plt.plot([xfiltered[j],xfiltered[j-1]],[yfiltered[j],yfiltered[j-1]],'-r')
                     line = f"G0 X{xfiltered[j]:.3f} Y{yfiltered[j]:.3f} F2400\n"
                     gcode_lines.append(line)
                     
@@ -580,9 +607,9 @@ def remove_near_duplicates(xsupports, ysupports, threshold=1.0):
 
 
 def GenerateOverhangToolpaths():
-
-    x,y = seedLoc
-    xsupports,ysupports,OverhangToolpaths = offset2gcode(linewidth = 0.4,overlap = 0.15,boundary_curve = BoundaryShape,seed_curve = [(x-5,y),(x+5,y)],Efactor = Efactor,F = 180,xoffset = 0,yoffset = 0,supportpitch = supportpitch,extruderTemp = 200,center = seedLoc,supportpitch_across = supportpitch_across,angle = 0,filename = "default.gcode")
+    global seedpoly
+    
+    xsupports,ysupports,OverhangToolpaths = offset2gcode(linewidth = 0.4,overlap = 0.15,boundary_curve = BoundaryShape,seed_curve = seedpoly,Efactor = Efactor,F = 180,xoffset = 0,yoffset = 0,supportpitch = supportpitch,extruderTemp = 200,center = seedLoc,supportpitch_across = supportpitch_across,angle = 0,filename = "default.gcode")
     xsupports,ysupports=remove_near_duplicates(xsupports,ysupports,4)
      # Create mask for shadow filtering
     shadow_buffer = shapeShadow.buffer(5)
@@ -624,7 +651,7 @@ for line in range(len(Base_GCode)-3):
     if Base_GCode[line].strip().startswith(";Z:"):
         ZLoc=float(Base_GCode[line].strip()[3:])
     
-    if not brimComplete:
+    if not seedlayerComplete and (ZLoc>=OverhangHeight[0]-0.13):
         getSeedloc(Base_GCode[line].strip())    
     if ZLoc>OverhangHeight[0]+0.12:
         if not perimeterComplete:
@@ -663,35 +690,36 @@ for line in range(len(Base_GCode)-3):
             outputfile.writelines("G92 E0; Resetting the coordinates of the extruder one last time for good measure\n")
             outputfile.writelines("M83; Change the extruder back to relative coordinates\n")
             OverhangPrinted = True
+        
 
 
     else:
         if Base_GCode[line].strip() == ";LAYER_CHANGE" and ZLoc<OverhangHeight[0]: #writing the support pins
-            if ZLocPrev <=BedOffset and not SupportBrimsPrinted:
+            if ZLocPrev <=BedOffset and Supported and not SupportBrimsPrinted:
                 brimArr = np.linspace(Brimsize,0,int(Brimsize/trackwidth))
                 SupportBrimsPrinted=True
                 
-                
-                outputfile.write("\n;Start support pin brims ")
-                for i in range(len(xsupports)):
-                    xpos = xsupports[i]
-                    ypos = ysupports[i]
-                    outputfile.write(f"\n;Brim {i}\n")
-                    for brimpos in brimArr:
-                        outputfile.write(f"\nG1 E-0.5 Z{ZLoc+1};Zhop and retract\n")
-                        outputfile.write(f'G0 X{xpos-brimpos} Y{ypos - brimpos};\n')
-                        outputfile.write(f"G1  Z{ZLoc} E0.50; undo zhop and reprime nozzle\n")
-                        outputfile.write(f"G1 X{xpos+brimpos} E{2*brimpos*Efactor*1.0} F500\n")
-                        outputfile.write(f"G1 Y{ypos+brimpos} E{2*brimpos*Efactor*1.0}\n")
-                        outputfile.write(f"G1 X{xpos-brimpos} E{2*brimpos*Efactor*1.0}\n")
-                        outputfile.write(f"G1 Y{ypos-brimpos} E{2*brimpos*Efactor*1.0}\n")
+                if True:
+                    outputfile.write("\n;Start support pin brims ")
+                    for i in range(len(xsupports)):
+                        xpos = xsupports[i]
+                        ypos = ysupports[i]
+                        outputfile.write(f"\n;Brim {i}\n")
+                        for brimpos in brimArr:
+                            outputfile.write(f"\nG1 E-0.5 Z{ZLoc+1};Zhop and retract\n")
+                            outputfile.write(f'G0 X{xpos-brimpos} Y{ypos - brimpos};\n')
+                            outputfile.write(f"G1  Z{ZLoc} E0.50; undo zhop and reprime nozzle\n")
+                            outputfile.write(f"G1 X{xpos+brimpos} E{2*brimpos*Efactor*0.95} F500\n")
+                            outputfile.write(f"G1 Y{ypos+brimpos} E{2*brimpos*Efactor*0.95}\n")
+                            outputfile.write(f"G1 X{xpos-brimpos} E{2*brimpos*Efactor*0.95}\n")
+                            outputfile.write(f"G1 Y{ypos-brimpos} E{2*brimpos*Efactor*0.95}\n")
 
 
                     
-            else:
+            elif Supported:
                 outputfile.write(";Start printing supports\n")
                 for i in range(len(xsupports)):
-                    shape = 0.5*5-ZLoc*(0.5*5-0.5)/BaseHeight
+                    shape = 0.5*Brimsize-ZLoc*(0.5*Brimsize-0.5)/BaseHeight
                     outputfile.write(f"G1 E-0.5 F9000; retract\n")
                     outputfile.write(f"G0 Z{ZLoc+0.4}")
                     outputfile.write(f"G0 X{xsupports[i]-shape} Y{ysupports[i]} F9000\n")
